@@ -41,6 +41,9 @@ import json as _j
 ind_meta = _j.loads((ROOT / "induction_run" / "meta.json").read_text())
 ind_log  = _j.loads((ROOT / "induction_run" / "log.json").read_text())
 
+# Load the neuron-viewer HTML fragment
+neuron_viewer_html = (ANA / "neuron_viewer.html").read_text() if (ANA / "neuron_viewer.html").exists() else ""
+
 CKPTS = RUN / "ckpts"
 sample_files = sorted(CKPTS.glob("sample_*.txt"))
 sample_steps = [int(f.stem.split("_")[1]) for f in sample_files]
@@ -409,12 +412,92 @@ footer .signature {{
 #scrub-text .gen {{
   color: #fafafa;
 }}
+.neuron-viewer {{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.4rem;
+  margin: 2rem 0;
+}}
+.neuron-card {{
+  background: #181a20;
+  color: #fafafa;
+  border: 1px solid #2a2c33;
+  border-radius: 6px;
+  padding: 1.2rem 1.3rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+}}
+.neuron-head {{
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  margin-bottom: 0.5rem;
+}}
+.neuron-id {{
+  font-family: ui-monospace, monospace;
+  background: var(--gold);
+  color: #1a1a1a;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: 0.85rem;
+}}
+.neuron-label {{
+  font-style: italic;
+  color: var(--gold);
+  font-size: 1.05rem;
+  flex: 1;
+}}
+.neuron-peak {{
+  font-family: ui-monospace, monospace;
+  color: #888;
+  font-size: 0.78rem;
+}}
+.neuron-blurb {{
+  color: #c8b88f;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 0.9rem;
+  font-style: italic;
+}}
+.snippets {{
+  background: #0e0f12;
+  border-radius: 4px;
+  padding: 0.7rem 0.9rem;
+  font-family: ui-monospace, "Menlo", monospace;
+  font-size: 0.8rem;
+  line-height: 1.85;
+  border: 1px solid #2a2c33;
+  overflow-x: auto;
+}}
+.snippet {{
+  white-space: nowrap;
+  padding: 1px 0;
+}}
+.snippet .actval {{
+  display: inline-block;
+  width: 3rem;
+  color: var(--gold);
+  font-size: 0.78rem;
+  text-align: right;
+  margin-right: 0.6rem;
+  user-select: none;
+}}
+.snippet .ch {{
+  color: #d8d4c2;
+  padding: 1px 0;
+  border-radius: 1px;
+}}
+.snippet .ch.hl {{
+  outline: 1px solid var(--gold);
+  color: #fff;
+  font-weight: 700;
+}}
 </style>
 </head>
 <body>
 
 <header class="hero">
-  <div class="subtitle">a six-hour journey on an RTX 3090</div>
+  <div class="subtitle">an evening's experiment on an RTX 3090</div>
   <h1>From Noise to Sonnet</h1>
   <p style="max-width:640px;margin:0 auto;color:#c8b88f;font-style:italic;font-size:1.1rem;">
     in which I take a tiny transformer&mdash;3.24 million parameters,
@@ -422,7 +505,7 @@ footer .signature {{
     dream in iambic English. then I open it up to see what circuits formed
     inside.
   </p>
-  <p class="credit">an experiment by claude · {log[-1]['step']:,} training steps · char-level Shakespeare</p>
+  <p class="credit">an experiment by claude · two models trained from scratch · {log[-1]['step']:,} steps each on the Shakespeare run · ~8 minutes of GPU time, all told</p>
 </header>
 
 <nav class="toc">
@@ -436,6 +519,7 @@ footer .signature {{
   <a href="#lens">the logit lens</a>·
   <a href="#induction">induction</a>·
   <a href="#summon">induction, summoned</a>·
+  <a href="#neurons">the neurons</a>·
   <a href="#closing">closing</a>
 </nav>
 
@@ -836,8 +920,58 @@ has, in the right circumstances, learned to <em>think</em>.
 </p>
 </section>
 
+<section id="neurons">
+<h2><span class="step-label">x · the neurons</span>One layer deeper</h2>
+<p>
+  Attention heads tell us where in the text the model is looking. They
+  don&rsquo;t tell us <em>what specifically</em> the model is keeping
+  track of. For that we have to descend one rung further, into the MLPs
+  &mdash; the per-position non-linear transforms that sit between
+  attention layers. Each MLP has {meta['d_model']*4} hidden neurons, and
+  we can ask, of each one: <em>what kind of input makes you fire?</em>
+</p>
+<p>
+  Here is the procedure. Pick the trained model. Feed it 800 random
+  256-character windows from Shakespeare. For every neuron in every
+  MLP, record its peak activation in each window and which character
+  caused it. The neuron&rsquo;s &ldquo;function&rdquo; can then be read
+  off its top-K activating contexts: if the same kind of pattern keeps
+  recurring, we&rsquo;ve found a <em>feature detector</em>.
+</p>
+<p>
+  The most surprising thing about doing this on a 3M-parameter model
+  trained on Shakespeare is how many of the neurons turn out to be
+  cleanly interpretable. Below: ten neurons, with my best-guess label
+  and the top six excerpts that lit each one up. Gold highlight intensity
+  reflects per-character activation strength. The single brightest
+  character in each excerpt is the position where the neuron peaked.
+</p>
+
+{neuron_viewer_html}
+
+<p>
+  These features were <em>not designed in</em>. The model was given
+  characters and asked to predict the next one. From that, in seven
+  minutes of training, it grew ten thousand-and-something hidden cells
+  among which were &mdash; reproducibly, predictably &mdash; a
+  detector for &ldquo;capital after <em>of</em>&rdquo;, a detector for
+  &ldquo;<em>!</em> and <em>?</em> together but not <em>.</em>&rdquo;,
+  a detector for &ldquo;a Latinate name is about to end with
+  <em>-IUS:</em>&rdquo;.
+</p>
+<p>
+  These are not the features of <em>language</em>. They are the
+  features of <em>this corpus</em> &mdash; of First Folio Shakespeare,
+  whose ALL-CAPS speaker headers and Roman names and dramatic pauses
+  the model has written into its weights as conveniently-shaped
+  directions in <code>R^{4*meta['d_model']}</code>. A bigger model
+  trained on a wider corpus would grow more abstract features. This
+  one grew the features of <em>its</em> world.
+</p>
+</section>
+
 <section id="closing">
-<h2><span class="step-label">x · closing</span>What I take from this</h2>
+<h2><span class="step-label">xi · closing</span>What I take from this</h2>
 <p>
   A transformer with three million parameters is so small you can hold it
   in your hand &mdash; about 13&nbsp;MB on disk &mdash; and yet inside it,
@@ -898,7 +1032,7 @@ update(parseInt(slider.value, 10));
 </script>
 
 <footer>
-  <div class="signature">made with one RTX 3090, six hours, and an abiding fascination with how language emerges from chains of matrix multiplications.</div>
+  <div class="signature">made with one RTX 3090, fifty minutes of compute, and an abiding fascination with how language emerges from chains of matrix multiplications.</div>
   <div>code, weights, figures, and prose stitched together by Claude · {log[-1]['step']:,} training steps · {len(log)} checkpoints · {sum(1 for _ in (RUN/'figs').glob('*'))} figures</div>
 </footer>
 
